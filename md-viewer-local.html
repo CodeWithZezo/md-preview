@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>MD Viewer — Local</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+  <style>
+    :root {
+      --bg:#212121; --surface:#2a2a2a; --surface2:#333; --border:#3d3d3d;
+      --text:#ececec; --text2:#a3a3a3; --text3:#666; --accent:#cc785c;
+      --code-bg:#1a1a1a; --code-color:#abb2bf;
+      --inline-code-bg:#2f2f2f; --inline-code-color:#e06c75;
+      --link:#7bafd4; --sidebar-w:280px;
+      --green:#89ca78; --red:#e06c75;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    html,body{height:100%;background:var(--bg);color:var(--text);font-family:"Syne",ui-sans-serif,sans-serif;-webkit-font-smoothing:antialiased;}
+    #app{display:flex;height:100vh;overflow:hidden;}
+
+    /* ── Overlay ── */
+    #overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;backdrop-filter:blur(2px);}
+    #overlay.show{display:block;}
+
+    /* ── Sidebar ── */
+    #sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:#181818;border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow:hidden;transition:transform .28s cubic-bezier(.4,0,.2,1);z-index:50;flex-shrink:0;}
+    .sidebar-header{padding:20px 18px 14px;border-bottom:1px solid var(--border);flex-shrink:0;}
+    .sidebar-label{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--text3);font-weight:700;margin-bottom:4px;}
+    .sidebar-title{font-size:14px;font-weight:800;color:var(--text);line-height:1.3;}
+    .sidebar-title span{color:var(--accent);}
+    .storage-status{display:flex;align-items:center;gap:5px;font-size:10px;font-family:"JetBrains Mono",monospace;margin-top:6px;color:var(--text3);}
+    .store-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);flex-shrink:0;}
+    .storage-bar-wrap{margin:10px 18px 0;flex-shrink:0;}
+    .storage-bar-label{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:"JetBrains Mono",monospace;margin-bottom:4px;}
+    .storage-bar-label span{color:var(--text2);}
+    .storage-bar-bg{height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
+    .storage-bar-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .4s ease;}
+    .storage-bar-fill.warn{background:#e5c07b;}
+    .storage-bar-fill.danger{background:var(--red);}
+
+    /* Upload zone */
+    .upload-zone{margin:12px 10px 0;border:1.5px dashed var(--border);border-radius:8px;padding:12px 10px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;flex-shrink:0;}
+    .upload-zone:hover,.upload-zone.drag-over{border-color:var(--accent);background:rgba(204,120,92,.06);}
+    .upload-zone input{display:none;}
+    .upload-icon{font-size:20px;margin-bottom:4px;}
+    .upload-label{font-size:11px;color:var(--text3);line-height:1.5;}
+    .upload-label span{color:var(--accent);font-weight:600;}
+
+    .sidebar-actions{display:flex;gap:6px;margin:8px 10px 0;flex-shrink:0;}
+    .sa-btn{flex:1;padding:7px 8px;background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:7px;font-family:inherit;font-size:11.5px;cursor:pointer;transition:all .14s;font-weight:600;white-space:nowrap;}
+    .sa-btn:hover{background:var(--surface2);color:var(--text);border-color:var(--accent);}
+    .sa-btn.danger:hover{border-color:var(--red);color:var(--red);}
+
+    /* File list */
+    .file-list{flex:1;overflow-y:auto;overflow-x:hidden;padding:6px 8px 10px;display:flex;flex-direction:column;gap:2px;}
+    .file-list-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);font-weight:700;padding:8px 4px 5px;flex-shrink:0;}
+    .file-list-empty{padding:20px 12px;font-size:11.5px;color:var(--text3);line-height:1.7;text-align:center;}
+    .file-btn{display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:7px;border:none;background:transparent;color:var(--text2);cursor:pointer;text-align:left;transition:background .14s,color .14s;width:100%;font-family:inherit;}
+    .file-btn:hover{background:var(--surface);color:var(--text);}
+    .file-btn.active{background:var(--surface2);color:var(--text);border-left:2px solid var(--accent);padding-left:8px;}
+    .file-icon{font-size:11px;padding-top:2px;flex-shrink:0;font-family:"JetBrains Mono",monospace;color:var(--accent);font-weight:700;}
+    .file-info{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+    .file-name{font-size:12.5px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .file-meta{font-size:10px;color:var(--text3);font-family:"JetBrains Mono",monospace;}
+    .file-btn.active .file-meta{color:var(--text2);}
+    .remove-btn{background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:2px 5px;border-radius:4px;line-height:1;font-family:inherit;transition:color .12s,background .12s;flex-shrink:0;margin-left:auto;}
+    .remove-btn:hover{color:var(--red);background:rgba(224,108,117,.1);}
+
+    /* ── Main ── */
+    #main{flex:1;min-width:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;}
+
+    /* ── Topbar ── */
+    #topbar{position:sticky;top:0;background:rgba(33,33,33,.93);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--border);padding:0 20px;height:52px;display:flex;align-items:center;gap:12px;z-index:20;flex-shrink:0;}
+    #menu-btn{display:none;background:none;border:none;color:var(--text2);cursor:pointer;padding:6px;border-radius:6px;transition:background .14s,color .14s;flex-shrink:0;}
+    #menu-btn:hover{background:var(--surface);color:var(--text);}
+    .top-badge{font-size:11px;font-weight:700;background:var(--accent);color:#fff;padding:3px 9px;border-radius:20px;font-family:"JetBrains Mono",monospace;letter-spacing:.04em;white-space:nowrap;flex-shrink:0;}
+    .top-name{font-size:13px;font-weight:600;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .topbar-actions{margin-left:auto;display:flex;gap:8px;align-items:center;}
+    .tb-btn{background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:5px 11px;border-radius:6px;font-family:inherit;font-size:11.5px;font-weight:600;cursor:pointer;transition:all .14s;white-space:nowrap;}
+    .tb-btn:hover{background:var(--surface2);color:var(--text);border-color:var(--accent);}
+    .tb-btn.on{color:var(--accent);border-color:var(--accent);}
+    .tb-btn.ok{color:var(--green);border-color:var(--green);}
+
+    /* ── Toast ── */
+    #toast{position:fixed;bottom:24px;right:24px;z-index:200;display:flex;flex-direction:column;gap:8px;pointer-events:none;}
+    .toast-item{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:8px;min-width:200px;box-shadow:0 8px 24px rgba(0,0,0,.4);animation:toastIn .2s ease;}
+    .toast-item.success{border-color:var(--green);color:var(--green);}
+    .toast-item.error{border-color:var(--red);color:var(--red);}
+    .toast-item.info{border-color:var(--accent);color:var(--accent);}
+    @keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+    /* ── Welcome ── */
+    #welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 24px;gap:18px;}
+    .welcome-icon{font-size:clamp(52px,12vw,72px);line-height:1;opacity:.12;}
+    .welcome-h{font-size:clamp(16px,3vw,20px);font-weight:800;}
+    .welcome-p{font-size:13.5px;color:var(--text3);max-width:340px;line-height:1.7;}
+    .welcome-steps{display:flex;flex-direction:column;gap:8px;text-align:left;margin-top:4px;}
+    .welcome-step{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--text3);}
+    .step-num{width:20px;height:20px;border-radius:50%;background:var(--surface2);color:var(--accent);font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:"JetBrains Mono",monospace;}
+    .welcome-arrow{font-size:12.5px;color:var(--accent);}
+
+    /* ── Content ── */
+    #content-area{display:none;padding:36px clamp(16px,5vw,52px) 80px;max-width:860px;width:100%;}
+    #raw-view{display:none;padding:36px clamp(16px,5vw,52px) 80px;max-width:860px;width:100%;}
+    #raw-view pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:20px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;font-family:"JetBrains Mono",monospace;font-size:13px;line-height:1.7;color:var(--code-color);}
+
+    /* ── Markdown ── */
+    .md{font-size:clamp(13.5px,2vw,15px);line-height:1.78;color:var(--text);animation:fadeUp .22s ease;}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    .md h1{font-size:clamp(1.4em,3vw,1.8em);font-weight:800;border-bottom:1px solid var(--border);padding-bottom:.4em;margin:0 0 1.1em;letter-spacing:-.02em;}
+    .md h2{font-size:clamp(1.15em,2.5vw,1.35em);font-weight:700;color:#d4d4d4;border-bottom:1px solid var(--border);padding-bottom:.3em;margin:1.7em 0 .65em;letter-spacing:-.01em;}
+    .md h3{font-size:1.08em;font-weight:700;color:#bcbcbc;margin:1.3em 0 .45em;}
+    .md h4{font-size:.97em;font-weight:600;color:var(--text2);margin:1.1em 0 .4em;}
+    .md p{margin:.8em 0;}
+    .md a{color:var(--link);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .15s;}
+    .md a:hover{border-bottom-color:var(--link);}
+    .md strong{font-weight:700;color:var(--text);}
+    .md em{color:var(--text2);font-style:italic;}
+    .md ul,.md ol{margin:.75em 0;padding-left:1.5em;}
+    .md li{margin:.28em 0;}
+    .md li::marker{color:var(--text3);}
+    .md blockquote{border-left:3px solid var(--accent);margin:1.1em 0;padding:.65em 0 .65em 1.1em;background:rgba(204,120,92,.07);border-radius:0 7px 7px 0;color:var(--text2);}
+    .md blockquote p{margin:0;}
+    .md pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin:1.1em 0;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+    .md pre code{background:none!important;border:none!important;padding:0!important;color:var(--code-color);font-size:.845em;line-height:1.7;font-family:"JetBrains Mono",monospace;white-space:pre;}
+    .md code{font-family:"JetBrains Mono",monospace;font-size:.875em;white-space:pre-wrap;word-break:break-word;}
+    .md :not(pre)>code{background:var(--inline-code-bg);color:var(--inline-code-color);padding:.13em .42em;border-radius:5px;border:1px solid var(--border);font-size:.83em;}
+    .md .table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:1.1em 0;border-radius:8px;border:1px solid var(--border);}
+    .md table{border-collapse:collapse;width:100%;min-width:400px;font-size:.88em;}
+    .md .table-wrap table{margin:0;border:none;border-radius:0;}
+    .md th,.md td{border:1px solid var(--border);padding:9px 13px;text-align:left;}
+    .md th{background:#252525;color:#bcbcbc;font-weight:700;font-size:.8em;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;}
+    .md tr:nth-child(even) td{background:rgba(255,255,255,.02);}
+    .md tr:hover td{background:var(--surface);transition:background .1s;}
+    .md hr{border:none;border-top:1px solid var(--border);margin:1.8em 0;}
+    .md img{max-width:100%;border-radius:8px;border:1px solid var(--border);display:block;margin:1em 0;}
+
+    /* ── Modals shared ── */
+    .modal-backdrop{display:none;position:fixed;inset:0;z-index:100;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);}
+    .modal-backdrop.show{display:flex;}
+    .modal-box{background:#1e1e1e;border:1px solid var(--border);border-radius:12px;width:min(600px,92vw);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.5);animation:modalIn .18s ease;}
+    .modal-box.sm{width:min(420px,92vw);}
+    @keyframes modalIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+    .modal-header{padding:16px 18px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+    .modal-title{font-size:14px;font-weight:700;}
+    .modal-close{background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;border-radius:4px;transition:color .12s;}
+    .modal-close:hover{color:var(--text);}
+    .modal-body{padding:14px 18px;flex:1;overflow-y:auto;}
+    .modal-field{margin-bottom:12px;}
+    .modal-field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);font-weight:700;margin-bottom:6px;}
+    .modal-field input,.modal-field textarea{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:"JetBrains Mono",monospace;font-size:12.5px;border-radius:7px;padding:9px 12px;outline:none;transition:border-color .14s;resize:vertical;}
+    .modal-field input:focus,.modal-field textarea:focus{border-color:var(--accent);}
+    .modal-field textarea{min-height:220px;line-height:1.6;}
+    .modal-footer{padding:12px 18px 14px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;}
+    .btn-cancel{padding:7px 16px;border-radius:7px;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .14s;background:var(--surface);border:1px solid var(--border);color:var(--text2);}
+    .btn-cancel:hover{color:var(--text);background:var(--surface2);}
+    .btn-confirm{padding:7px 16px;border-radius:7px;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .14s;background:var(--accent);border:1px solid var(--accent);color:#fff;}
+    .btn-confirm:hover{opacity:.88;}
+    .btn-confirm:disabled{opacity:.4;cursor:not-allowed;}
+    .btn-danger{padding:7px 16px;border-radius:7px;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .14s;background:transparent;border:1px solid var(--red);color:var(--red);}
+    .btn-danger:hover{background:rgba(224,108,117,.12);}
+
+    /* Export modal */
+    .export-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;}
+    .export-card{padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;text-align:left;}
+    .export-card:hover{border-color:var(--accent);background:rgba(204,120,92,.07);}
+    .export-card-icon{font-size:20px;margin-bottom:6px;}
+    .export-card-title{font-size:12.5px;font-weight:700;color:var(--text);}
+    .export-card-desc{font-size:11px;color:var(--text3);margin-top:2px;line-height:1.4;}
+
+    /* Rename inline */
+    .rename-input{background:var(--surface2);border:1px solid var(--accent);color:var(--text);font-family:inherit;font-size:12.5px;border-radius:5px;padding:2px 8px;outline:none;width:100%;}
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar{width:4px;height:4px;}
+    ::-webkit-scrollbar-track{background:transparent;}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+    ::selection{background:rgba(204,120,92,.25);}
+
+    /* ── Responsive ── */
+    @media(max-width:768px){
+      #sidebar{position:fixed;top:0;left:0;height:100%;transform:translateX(-100%);box-shadow:4px 0 24px rgba(0,0,0,.4);}
+      #sidebar.open{transform:translateX(0);}
+      #menu-btn{display:flex!important;align-items:center;justify-content:center;}
+      #app{display:block;}
+      #main{height:100vh;}
+      #content-area,#raw-view{padding:24px 16px 60px;}
+      #topbar{padding:0 14px;gap:8px;}
+      .top-name{font-size:12px;}
+      .export-grid{grid-template-columns:1fr;}
+    }
+    @media(max-width:400px){
+      .sidebar-title{font-size:13px;}
+      .md h1{font-size:1.3em;}
+    }
+  </style>
+</head>
+<body>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Overlay -->
+<div id="overlay" onclick="closeSidebar()"></div>
+
+<!-- ── Paste / Add Modal ── -->
+<div class="modal-backdrop" id="addModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title" id="addModalTitle">Add Markdown Document</div>
+      <button class="modal-close" onclick="closeAddModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>Document Title</label>
+        <input type="text" id="addTitle" placeholder="e.g. My Notes" autocomplete="off" />
+      </div>
+      <div class="modal-field">
+        <label>Markdown Content</label>
+        <textarea id="addContent" placeholder="# Hello World&#10;&#10;Start writing markdown..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeAddModal()">Cancel</button>
+      <button class="btn-confirm" id="addConfirmBtn" onclick="confirmAdd()">Save Locally</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit / Rename Modal ── -->
+<div class="modal-backdrop" id="editModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title">Edit Document</div>
+      <button class="modal-close" onclick="closeEditModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>Document Title</label>
+        <input type="text" id="editTitle" autocomplete="off" />
+      </div>
+      <div class="modal-field">
+        <label>Markdown Content</label>
+        <textarea id="editContent"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeEditModal()">Cancel</button>
+      <button class="btn-confirm" onclick="confirmEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Export Modal ── -->
+<div class="modal-backdrop" id="exportModal">
+  <div class="modal-box sm">
+    <div class="modal-header">
+      <div class="modal-title">Export Document</div>
+      <button class="modal-close" onclick="closeExportModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="export-grid">
+        <div class="export-card" onclick="exportAs('md')">
+          <div class="export-card-icon">📄</div>
+          <div class="export-card-title">.md File</div>
+          <div class="export-card-desc">Raw markdown source</div>
+        </div>
+        <div class="export-card" onclick="exportAs('html')">
+          <div class="export-card-icon">🌐</div>
+          <div class="export-card-title">.html File</div>
+          <div class="export-card-desc">Rendered HTML page</div>
+        </div>
+        <div class="export-card" onclick="exportAs('txt')">
+          <div class="export-card-icon">📝</div>
+          <div class="export-card-title">.txt File</div>
+          <div class="export-card-desc">Plain text format</div>
+        </div>
+        <div class="export-card" onclick="exportAs('json')">
+          <div class="export-card-icon">📦</div>
+          <div class="export-card-title">All Docs (JSON)</div>
+          <div class="export-card-desc">Full backup of everything</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Clear All Confirm Modal ── -->
+<div class="modal-backdrop" id="clearModal">
+  <div class="modal-box sm">
+    <div class="modal-header">
+      <div class="modal-title">Clear All Documents?</div>
+      <button class="modal-close" onclick="closeClearModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13.5px;color:var(--text2);line-height:1.7;">
+        This will permanently delete <strong id="clearCount" style="color:var(--text)">all</strong> documents from local storage.<br><br>
+        <span style="color:var(--red);font-size:12px;">⚠ This action cannot be undone.</span>
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeClearModal()">Cancel</button>
+      <button class="btn-danger" onclick="confirmClear()">Delete Everything</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── App ── -->
+<div id="app">
+  <!-- Sidebar -->
+  <nav id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-label">MD Viewer</div>
+      <div class="sidebar-title">Markdown <span>Local</span></div>
+      <div class="storage-status">
+        <div class="store-dot"></div>
+        <span id="storageText">localStorage · 0 docs</span>
+      </div>
+    </div>
+
+    <!-- Storage bar -->
+    <div class="storage-bar-wrap">
+      <div class="storage-bar-label">
+        <span>Storage used</span>
+        <span id="storageUsed">0 KB / ~5 MB</span>
+      </div>
+      <div class="storage-bar-bg">
+        <div class="storage-bar-fill" id="storageBarFill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Upload -->
+    <div class="upload-zone" id="uploadZone"
+      onclick="document.getElementById('fileInput').click()"
+      ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+      <input type="file" id="fileInput" accept=".md,.txt,.markdown,.json" multiple onchange="handleFiles(this.files)" />
+      <div class="upload-icon">📄</div>
+      <div class="upload-label"><span>Click to upload</span> or drag & drop<br>.md / .txt / .markdown / backup .json</div>
+    </div>
+
+    <!-- Sidebar action buttons -->
+    <div class="sidebar-actions">
+      <button class="sa-btn" onclick="openAddModal()">✎ Paste</button>
+      <button class="sa-btn" onclick="openExportModal()" id="exportAllBtn">⬇ Export</button>
+      <button class="sa-btn danger" onclick="openClearModal()" id="clearAllBtn">🗑</button>
+    </div>
+
+    <!-- File list -->
+    <div class="file-list" id="fileList">
+      <div class="file-list-empty" id="emptyMsg">
+        No documents yet.<br><br>
+        Upload a .md file or paste<br>markdown using the buttons above.
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <div id="main">
+    <div id="topbar">
+      <button id="menu-btn" onclick="toggleSidebar()" aria-label="Menu">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+      <span class="top-badge" id="topBadge">—</span>
+      <span class="top-name" id="topName">No document selected</span>
+      <div class="topbar-actions">
+        <button class="tb-btn" id="rawBtn"    onclick="toggleRaw()"    style="display:none">Raw</button>
+        <button class="tb-btn" id="editBtn"   onclick="openEditModal()" style="display:none">Edit</button>
+        <button class="tb-btn" id="copyBtn"   onclick="copyMd()"       style="display:none">Copy MD</button>
+        <button class="tb-btn" id="deleteBtn" onclick="deleteActive()"  style="display:none;color:var(--red)">Delete</button>
+      </div>
+    </div>
+
+    <!-- Welcome -->
+    <div id="welcome">
+      <div class="welcome-icon">◈</div>
+      <div class="welcome-h">Markdown Viewer</div>
+      <div class="welcome-p">All documents are saved in your browser's local storage — no server, no internet, completely private.</div>
+      <div class="welcome-steps">
+        <div class="welcome-step"><div class="step-num">1</div><span>Upload a .md file or paste markdown</span></div>
+        <div class="welcome-step"><div class="step-num">2</div><span>Docs persist across page refreshes</span></div>
+        <div class="welcome-step"><div class="step-num">3</div><span>Edit, export, or delete anytime</span></div>
+      </div>
+      <div class="welcome-arrow">← Start from the sidebar</div>
+    </div>
+
+    <!-- Content -->
+    <div id="content-area">
+      <div class="md" id="mdOutput"></div>
+    </div>
+
+    <!-- Raw -->
+    <div id="raw-view">
+      <pre id="rawOutput"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  STORAGE LAYER
+//  All docs stored as one JSON array under LS_KEY
+// ═══════════════════════════════════════════════════════════
+const LS_KEY      = 'mdviewer_docs';
+const LS_ACTIVE   = 'mdviewer_active';
+const LS_MAX_EST  = 5 * 1024 * 1024; // ~5MB estimate
+
+function lsLoad() {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+  } catch { return []; }
+}
+
+function lsSave(arr) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(arr));
+    return true;
+  } catch (e) {
+    if (e.name === 'QuotaExceededError') {
+      toast('Storage full! Delete some documents first.', 'error', 4000);
+    }
+    return false;
+  }
+}
+
+function lsGetActive()    { return localStorage.getItem(LS_ACTIVE) || null; }
+function lsSetActive(id)  { if (id) localStorage.setItem(LS_ACTIVE, id); else localStorage.removeItem(LS_ACTIVE); }
+
+// ═══════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════
+let docs       = lsLoad();
+let activeId   = null;
+let showingRaw = false;
+let editingId  = null;
+
+marked.setOptions({ breaks: true, gfm: true });
+
+// ═══════════════════════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════════════════════
+function uid()    { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function esc(s)   { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtSize(bytes) {
+  if (bytes < 1024)    return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+function relDate(ts) {
+  if (!ts) return '—';
+  const diff = (Date.now() - ts) / 1000;
+  if (diff < 5)     return 'just now';
+  if (diff < 60)    return Math.floor(diff) + 's ago';
+  if (diff < 3600)  return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TOAST
+// ═══════════════════════════════════════════════════════════
+function toast(msg, type = 'info', duration = 2600) {
+  const icons = { success: '✓', error: '✕', info: '◈' };
+  const el = document.createElement('div');
+  el.className = `toast-item ${type}`;
+  el.innerHTML = `<span>${icons[type]}</span>${msg}`;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(10px)';
+    el.style.transition = 'all .2s';
+    setTimeout(() => el.remove(), 200);
+  }, duration);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  STORAGE BAR
+// ═══════════════════════════════════════════════════════════
+function updateStorageBar() {
+  const raw    = localStorage.getItem(LS_KEY) || '';
+  const used   = new Blob([raw]).size;
+  const pct    = Math.min((used / LS_MAX_EST) * 100, 100);
+  const fill   = document.getElementById('storageBarFill');
+  const label  = document.getElementById('storageUsed');
+  const status = document.getElementById('storageText');
+
+  fill.style.width = pct.toFixed(1) + '%';
+  fill.className   = 'storage-bar-fill' + (pct > 80 ? ' danger' : pct > 60 ? ' warn' : '');
+  label.textContent = `${fmtSize(used)} / ~5 MB`;
+  status.textContent = `localStorage · ${docs.length} doc${docs.length !== 1 ? 's' : ''}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER SIDEBAR LIST
+// ═══════════════════════════════════════════════════════════
+function renderList() {
+  const list = document.getElementById('fileList');
+  if (docs.length === 0) {
+    list.innerHTML = `<div class="file-list-empty" id="emptyMsg">No documents yet.<br><br>Upload a .md file or paste<br>markdown using the buttons above.</div>`;
+    return;
+  }
+  list.innerHTML = `<div class="file-list-label">Documents (${docs.length})</div>`;
+  docs.forEach(doc => {
+    const btn = document.createElement('button');
+    btn.className = 'file-btn' + (doc.id === activeId ? ' active' : '');
+    btn.innerHTML = `
+      <span class="file-icon">#</span>
+      <span class="file-info">
+        <span class="file-name">${esc(doc.name)}</span>
+        <span class="file-meta">${fmtSize(doc.content.length)} · ${relDate(doc.updatedAt)}</span>
+      </span>
+      <button class="remove-btn" title="Delete" onclick="deleteDoc(event,'${doc.id}')">✕</button>`;
+    btn.onclick = e => {
+      if (e.target.classList.contains('remove-btn')) return;
+      openDoc(doc.id);
+      if (window.innerWidth <= 768) closeSidebar();
+    };
+    list.appendChild(btn);
+  });
+  updateStorageBar();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  OPEN / RENDER A DOC
+// ═══════════════════════════════════════════════════════════
+function openDoc(id) {
+  const doc = docs.find(d => d.id === id);
+  if (!doc) return;
+
+  activeId   = id;
+  showingRaw = false;
+  lsSetActive(id);
+  renderList();
+
+  document.getElementById('topBadge').textContent = 'MD';
+  document.getElementById('topName').textContent  = doc.name;
+  ['rawBtn','editBtn','copyBtn','deleteBtn'].forEach(b => document.getElementById(b).style.display = '');
+  document.getElementById('rawBtn').textContent = 'Raw';
+  document.getElementById('rawBtn').classList.remove('on');
+
+  document.getElementById('welcome').style.display      = 'none';
+  document.getElementById('raw-view').style.display     = 'none';
+  document.getElementById('content-area').style.display = 'block';
+
+  document.getElementById('mdOutput').innerHTML = marked.parse(doc.content);
+  wrapTables();
+  document.getElementById('main').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function wrapTables() {
+  document.querySelectorAll('.md table').forEach(t => {
+    if (t.parentElement.classList.contains('table-wrap')) return;
+    const w = document.createElement('div');
+    w.className = 'table-wrap';
+    t.parentNode.insertBefore(w, t);
+    w.appendChild(t);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ADD DOCUMENT
+// ═══════════════════════════════════════════════════════════
+function addDoc(name, content) {
+  const id  = uid();
+  const now = Date.now();
+  const doc = { id, name, content, createdAt: now, updatedAt: now };
+  docs.unshift(doc);
+  if (!lsSave(docs)) { docs.shift(); return null; }
+  renderList();
+  toast(`"${name}" saved`, 'success');
+  return id;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DELETE DOCUMENT
+// ═══════════════════════════════════════════════════════════
+function deleteDoc(e, id) {
+  e.stopPropagation();
+  const doc = docs.find(d => d.id === id);
+  if (!doc) return;
+  if (!confirm(`Delete "${doc.name}"?\nThis cannot be undone.`)) return;
+
+  docs = docs.filter(d => d.id !== id);
+  lsSave(docs);
+
+  if (activeId === id) {
+    activeId = null;
+    lsSetActive(null);
+    document.getElementById('welcome').style.display      = '';
+    document.getElementById('content-area').style.display = 'none';
+    document.getElementById('raw-view').style.display     = 'none';
+    ['rawBtn','editBtn','copyBtn','deleteBtn'].forEach(b => document.getElementById(b).style.display = 'none');
+    document.getElementById('topBadge').textContent = '—';
+    document.getElementById('topName').textContent  = 'No document selected';
+  }
+  renderList();
+  toast(`"${doc.name}" deleted`, 'info');
+}
+
+function deleteActive() {
+  if (!activeId) return;
+  deleteDoc({ stopPropagation: () => {} }, activeId);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TOGGLE RAW VIEW
+// ═══════════════════════════════════════════════════════════
+function toggleRaw() {
+  const doc = docs.find(d => d.id === activeId);
+  if (!doc) return;
+  showingRaw = !showingRaw;
+  document.getElementById('content-area').style.display = showingRaw ? 'none' : 'block';
+  document.getElementById('raw-view').style.display     = showingRaw ? 'block' : 'none';
+  document.getElementById('rawOutput').textContent      = doc.content;
+  const btn = document.getElementById('rawBtn');
+  btn.textContent = showingRaw ? 'Preview' : 'Raw';
+  btn.classList.toggle('on', showingRaw);
+  document.getElementById('main').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  COPY MARKDOWN
+// ═══════════════════════════════════════════════════════════
+function copyMd() {
+  const doc = docs.find(d => d.id === activeId);
+  if (!doc) return;
+  navigator.clipboard.writeText(doc.content).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = '✓ Copied';
+    btn.classList.add('ok');
+    setTimeout(() => { btn.textContent = 'Copy MD'; btn.classList.remove('ok'); }, 1800);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  FILE UPLOAD
+// ═══════════════════════════════════════════════════════════
+function handleFiles(files) {
+  Array.from(files).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      // Detect backup JSON
+      if (file.name.endsWith('.json')) {
+        importBackup(e.target.result);
+        return;
+      }
+      const name = file.name.replace(/\.(md|txt|markdown)$/i, '');
+      const id   = addDoc(name, e.target.result);
+      if (id) openDoc(id);
+    };
+    reader.readAsText(file);
+  });
+  document.getElementById('fileInput').value = '';
+}
+
+function importBackup(jsonStr) {
+  try {
+    const arr = JSON.parse(jsonStr);
+    if (!Array.isArray(arr)) throw new Error('Not an array');
+    let imported = 0;
+    arr.forEach(d => {
+      if (d.name && d.content) {
+        const id  = uid();
+        const now = Date.now();
+        docs.unshift({ id, name: d.name, content: d.content, createdAt: now, updatedAt: now });
+        imported++;
+      }
+    });
+    if (imported > 0) { lsSave(docs); renderList(); toast(`Imported ${imported} document${imported>1?'s':''}`, 'success'); }
+    else toast('No valid documents found in JSON', 'error');
+  } catch { toast('Invalid backup file', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DRAG & DROP
+// ═══════════════════════════════════════════════════════════
+function onDragOver(e)  { e.preventDefault(); document.getElementById('uploadZone').classList.add('drag-over'); }
+function onDragLeave()  { document.getElementById('uploadZone').classList.remove('drag-over'); }
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.remove('drag-over');
+  handleFiles(e.dataTransfer.files);
+}
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  ADD MODAL (paste)
+// ═══════════════════════════════════════════════════════════
+function openAddModal() {
+  document.getElementById('addModal').classList.add('show');
+  setTimeout(() => document.getElementById('addTitle').focus(), 80);
+  if (window.innerWidth <= 768) closeSidebar();
+}
+function closeAddModal() {
+  document.getElementById('addModal').classList.remove('show');
+  document.getElementById('addTitle').value   = '';
+  document.getElementById('addContent').value = '';
+}
+function confirmAdd() {
+  const name    = document.getElementById('addTitle').value.trim()   || 'Untitled';
+  const content = document.getElementById('addContent').value.trim();
+  if (!content) { toast('Content cannot be empty', 'error'); return; }
+  const id = addDoc(name, content);
+  if (id) { closeAddModal(); openDoc(id); }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EDIT MODAL
+// ═══════════════════════════════════════════════════════════
+function openEditModal() {
+  const doc = docs.find(d => d.id === activeId);
+  if (!doc) return;
+  editingId = doc.id;
+  document.getElementById('editTitle').value   = doc.name;
+  document.getElementById('editContent').value = doc.content;
+  document.getElementById('editModal').classList.add('show');
+  setTimeout(() => document.getElementById('editTitle').focus(), 80);
+}
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('show');
+  editingId = null;
+}
+function confirmEdit() {
+  const doc = docs.find(d => d.id === editingId);
+  if (!doc) return;
+  const newName    = document.getElementById('editTitle').value.trim()   || doc.name;
+  const newContent = document.getElementById('editContent').value;
+  if (!newContent.trim()) { toast('Content cannot be empty', 'error'); return; }
+  doc.name      = newName;
+  doc.content   = newContent;
+  doc.updatedAt = Date.now();
+  lsSave(docs);
+  closeEditModal();
+  renderList();
+  openDoc(doc.id);
+  toast(`"${newName}" updated`, 'success');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EXPORT MODAL
+// ═══════════════════════════════════════════════════════════
+function openExportModal() {
+  if (docs.length === 0 && !activeId) { toast('No documents to export', 'error'); return; }
+  document.getElementById('exportModal').classList.add('show');
+}
+function closeExportModal() { document.getElementById('exportModal').classList.remove('show'); }
+
+function exportAs(format) {
+  closeExportModal();
+  if (format === 'json') {
+    download('md-viewer-backup.json', JSON.stringify(docs, null, 2), 'application/json');
+    toast('All documents exported as JSON', 'success');
+    return;
+  }
+  const doc = docs.find(d => d.id === activeId);
+  if (!doc) { toast('Select a document first', 'error'); return; }
+  const safeName = doc.name.replace(/[^a-z0-9_\-]/gi, '_');
+  if (format === 'md') {
+    download(`${safeName}.md`, doc.content, 'text/markdown');
+  } else if (format === 'txt') {
+    download(`${safeName}.txt`, doc.content, 'text/plain');
+  } else if (format === 'html') {
+    const htmlContent = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>${esc(doc.name)}</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.7;color:#222;}
+    pre{background:#f5f5f5;padding:14px;border-radius:6px;overflow-x:auto;}
+    code{font-family:monospace;background:#f0f0f0;padding:2px 5px;border-radius:3px;}
+    pre code{background:none;padding:0;}
+    blockquote{border-left:4px solid #ccc;margin:0;padding-left:16px;color:#555;}
+    table{border-collapse:collapse;width:100%;}
+    th,td{border:1px solid #ddd;padding:8px 12px;}
+    th{background:#f0f0f0;}
+    img{max-width:100%;}
+  </style>
+</head>
+<body>
+${marked.parse(doc.content)}
+</body>
+</html>`;
+    download(`${safeName}.html`, htmlContent, 'text/html');
+  }
+  toast(`Exported "${doc.name}" as .${format}`, 'success');
+}
+
+function download(filename, content, mime) {
+  const a = document.createElement('a');
+  a.href  = URL.createObjectURL(new Blob([content], { type: mime }));
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CLEAR ALL MODAL
+// ═══════════════════════════════════════════════════════════
+function openClearModal() {
+  if (docs.length === 0) { toast('Nothing to clear', 'info'); return; }
+  document.getElementById('clearCount').textContent = `all ${docs.length}`;
+  document.getElementById('clearModal').classList.add('show');
+}
+function closeClearModal() { document.getElementById('clearModal').classList.remove('show'); }
+function confirmClear() {
+  docs = [];
+  localStorage.removeItem(LS_KEY);
+  localStorage.removeItem(LS_ACTIVE);
+  activeId = null;
+  closeClearModal();
+  renderList();
+  document.getElementById('welcome').style.display      = '';
+  document.getElementById('content-area').style.display = 'none';
+  document.getElementById('raw-view').style.display     = 'none';
+  ['rawBtn','editBtn','copyBtn','deleteBtn'].forEach(b => document.getElementById(b).style.display = 'none');
+  document.getElementById('topBadge').textContent = '—';
+  document.getElementById('topName').textContent  = 'No document selected';
+  updateStorageBar();
+  toast('All documents cleared', 'info');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SIDEBAR
+// ═══════════════════════════════════════════════════════════
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('overlay').classList.toggle('show');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('overlay').classList.remove('show');
+}
+window.addEventListener('resize', () => { if (window.innerWidth > 768) closeSidebar(); });
+
+// ═══════════════════════════════════════════════════════════
+//  KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  const anyModalOpen =
+    document.getElementById('addModal').classList.contains('show') ||
+    document.getElementById('editModal').classList.contains('show') ||
+    document.getElementById('exportModal').classList.contains('show') ||
+    document.getElementById('clearModal').classList.contains('show');
+
+  if (e.key === 'Escape') {
+    closeAddModal(); closeEditModal(); closeExportModal(); closeClearModal();
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if (document.getElementById('addModal').classList.contains('show'))  confirmAdd();
+    if (document.getElementById('editModal').classList.contains('show')) confirmEdit();
+  }
+  // Cmd/Ctrl + N = new doc
+  if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !anyModalOpen) {
+    e.preventDefault(); openAddModal();
+  }
+  // Cmd/Ctrl + E = edit active
+  if ((e.metaKey || e.ctrlKey) && e.key === 'e' && !anyModalOpen && activeId) {
+    e.preventDefault(); openEditModal();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  BOOT — restore last state
+// ═══════════════════════════════════════════════════════════
+(function boot() {
+  renderList();
+  updateStorageBar();
+  const lastActive = lsGetActive();
+  if (lastActive && docs.find(d => d.id === lastActive)) {
+    openDoc(lastActive);
+  }
+})();
+</script>
+</body>
+</html>
